@@ -1,213 +1,482 @@
 {
-  "name": "MAFCO PUBLISH WEBHOOK \u2014 VARIANTS (v2)",
+  "name": "MAFCO - Product Intake (Landing)",
   "nodes": [
     {
       "parameters": {
-        "httpMethod": "POST",
-        "path": "mafco-publish-variants",
-        "responseMode": "responseNode",
-        "options": {
-          "allowedOrigins": "*"
-        }
-      },
-      "type": "n8n-nodes-base.webhook",
-      "typeVersion": 2.1,
-      "position": [
-        0,
-        0
-      ],
-      "id": "fe48cd5b-8a99-4ff5-a555-bcb6f79561fa",
-      "name": "Webhook",
-      "webhookId": "44fc1607-eb55-4458-b166-fbf9c0fde92d"
-    },
-    {
-      "parameters": {
-        "jsCode": "const item = $input.first().json.body;\nconst images = item.images || [];\n\nreturn images.map(img => ({\n  json: {\n    article: item.article,\n    size: item.size,\n    pairs: item.pairs,\n    data: item.data,\n    filename: img.filename,\n    slot: img.slot,\n    color: img.color\n  },\n  binary: {\n    file: {\n      data: img.base64,\n      mimeType: img.filename.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg',\n      fileName: img.filename\n    }\n  }\n}));"
+        "mode": "runOnceForEachItem",
+        "jsCode": "return {\n  imageBase64: $json.imageBase64,\n  _infoPanel: $json._infoPanel,\n  _articleNo: $json._articleNo,\n  _color: $json._color,\n  _sizeGroup: $json._sizeGroup,\n  _mrp: $json._mrp,\n  _alias: $json._alias,\n  _driveFilename: $json._driveFilename,\n  _websiteFilename: $json._websiteFilename,\n  _hasImage: $json._hasImage,\n  _activeStockFolderId: $json._activeStockFolderId\n};"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        224,
-        0
+        -496,
+        144
       ],
-      "id": "f0cbe0d0-49da-4324-9ef0-d79c1379319d",
-      "name": "Upload all images"
+      "id": "232ec1fa-4b14-4d4a-972a-9c8ea8f73a96",
+      "name": "Binary 64"
     },
     {
       "parameters": {
-        "jsCode": "const item = $input.first().json;\nconst d = item.data || {};\nconst uploadedImages = item.uploadedImages || [];\n\n// Categories now arrive as real WooCommerce category IDs (numbers) straight from\n// the dashboard's live-fetched CategoryPicker -- see MAFCO CATEGORIES WEBHOOK and\n// the dashboard's buildCategoryTree (29 Aug 2026). No lookup table needed here\n// anymore -- just validate and pass the IDs straight through.\nconst categories = (d.categories || [])\n  .map(id => Number(id))\n  .filter(id => Number.isFinite(id) && id > 0)\n  .map(id => ({ id }));\n\nconst colorImages = uploadedImages.filter(img => img.id && img.color);\nconst colorNames = [...new Set(colorImages.map(img => img.color))];\n\n// Size is now a real per-variation dimension: the dashboard sends a list of\n// size groups (e.g. [\"7X12\", \"8X12\"]) instead of a single value. Falls back\n// to the old single \"size\" field for backward compatibility.\nconst sizeGroups = Array.isArray(item.sizes) && item.sizes.length\n  ? item.sizes\n  : (item.size ? [item.size] : []);\n\nconst BRAND_IDS = { \"MAFCO\": 132, \"Kats\": 203 };\nconst brandTerms = (d.brand && BRAND_IDS[d.brand]) ? [{ id: BRAND_IDS[d.brand] }] : [];\n\nconst images = uploadedImages\n  .filter(img => img.id)\n  .map(img => ({ id: img.id }));\n\nconst payload = {\n  name: d.articleNo,\n  type: 'variable',\n  status: 'publish',\n  sku: d.articleNo,\n  catalog_visibility: 'visible',\n  reviews_allowed: false,\n  short_description: d.shortDescription,\n  description: d.longDescription,\n  images: images,\n  categories: categories,\n  attributes: [\n    { id: 2, options: colorNames, variation: true, visible: true },\n    { id: 5, options: sizeGroups, variation: true, visible: true }\n  ],\n  brands: brandTerms,\n  meta_data: [\n    { key: 'rank_math_title', value: d.seoTitle },\n    { key: 'rank_math_description', value: d.metaDescription },\n    { key: 'rank_math_focus_keyword', value: d.focusKeyword }\n  ]\n};\n\nreturn [{\n  json: {\n    article: item.article,\n    articleNo: d.articleNo,\n    wc_body: payload,\n    colorImages: colorImages,\n    sizeGroups: sizeGroups\n  }\n}];\n"
+        "mode": "runOnceForEachItem",
+        "jsCode": "const hasImage = $json._hasImage;\nlet imageBase64 = null;\n\nif (hasImage) {\n  const buffer = await this.helpers.getBinaryDataBuffer($itemIndex, 'Product_Image');\n  imageBase64 = buffer.toString('base64');\n}\n\nreturn {\n  imageBase64: imageBase64,\n  _infoPanel: $json._infoPanel,\n  _articleNo: $json._articleNo,\n  _color: $json._color,\n  _sizeGroup: $json._sizeGroup,\n  _mrp: $json._mrp,\n  _alias: $json._alias,\n  _driveFilename: $json._driveFilename,\n  _websiteFilename: $json._websiteFilename,\n  _hasImage: $json._hasImage,\n  _activeStockFolderId: $json._activeStockFolderId\n};"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        896,
-        0
+        -640,
+        160
       ],
-      "id": "094540ae-6d38-453d-8e27-385800237850",
-      "name": "Prepare Woocommerce payload"
-    },
-    {
-      "parameters": {
-        "jsCode": "const original = $('Prepare Woocommerce payload').first().json;\nconst variationSummary = $('Combine variation results').first().json;\n\n// The parent product response comes from whichever branch actually ran --\n// a brand-new product (Create Woocommerce product) or an existing one that\n// got updated instead (Update Existing Product). Try both, safely.\nlet wcResponse = {};\ntry {\n  wcResponse = $('Create Woocommerce product').first().json;\n} catch (e) {\n  try {\n    wcResponse = $('Update Existing Product').first().json;\n  } catch (e2) {\n    wcResponse = {};\n  }\n}\n\nconst parentError = !!wcResponse.error;\nconst variationsOk = variationSummary.allVariationsOk !== false;\nconst isError = parentError || !variationsOk;\n\nreturn [{\n  json: {\n    article: original.article,\n    status: isError ? 'failed' : 'success',\n    productId: wcResponse.id || null,\n    url: wcResponse.permalink || null,\n    error: parentError ? (wcResponse.error.message || 'Unknown error') : (!variationsOk ? 'One or more variations failed to create' : null),\n    variationResults: variationSummary.variationResults || []\n  }\n}];\n"
-      },
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        2384,
-        0
-      ],
-      "id": "208cc15e-eab2-4e49-b1db-8895fb8fc7ba",
-      "name": "Build response"
-    },
-    {
-      "parameters": {
-        "respondWith": "json",
-        "responseBody": "={{ JSON.stringify($json) }}",
-        "options": {}
-      },
-      "type": "n8n-nodes-base.respondToWebhook",
-      "typeVersion": 1.5,
-      "position": [
-        2608,
-        0
-      ],
-      "id": "4589fa2a-5397-4c7f-b400-50fe3e166006",
-      "name": "Respond to Webhook"
-    },
-    {
-      "parameters": {
-        "jsCode": "const httpResults = $input.all();\nconst originals = $('Upload all images').all();\n\nconst uploaded = httpResults.map((item, i) => ({\n  slot: originals[i].json.slot,\n  color: originals[i].json.color,\n  id: item.json.id\n}));\n\nconst first = originals[0].json;\n\nreturn [{\n  json: {\n    article: first.article,\n    size: first.size,\n    pairs: first.pairs,\n    data: first.data,\n    uploadedImages: uploaded\n  }\n}];"
-      },
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        672,
-        0
-      ],
-      "id": "12da6087-1cb2-428d-8b7d-7fd5814a3819",
-      "name": "Combine Upload results"
+      "id": "88e206a4-dd71-4533-aa84-edd5d73ac10e",
+      "name": "Code in JavaScript"
     },
     {
       "parameters": {
         "method": "POST",
-        "url": "https://api.mafcofashion.com/wp-json/wp/v2/media",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpBasicAuth",
+        "url": "http://127.0.0.1:3001/process-image",
         "sendBody": true,
-        "contentType": "multipart-form-data",
-        "bodyParameters": {
-          "parameters": [
-            {
-              "parameterType": "formBinaryData",
-              "name": "file",
-              "inputDataFieldName": "file"
-            }
-          ]
+        "specifyBody": "json",
+        "jsonBody": "={ \"imageBase64\": \"{{ $json.imageBase64 }}\", \"infoPanel\": \"{{ $json._infoPanel }}\" }",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -272,
+        32
+      ],
+      "id": "450c41f3-cc76-4faf-bba5-1cc1a4598f2d",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "name": "={{ $json._websiteFilename }}",
+        "driveId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "My Drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "mode": "url",
+          "value": "https://drive.google.com/drive/folders/1MnCOjKvrv1ZecKp-hjXm3ZmPmsnWxnJq"
         },
         "options": {}
       },
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.4,
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
       "position": [
-        448,
-        0
+        304,
+        96
       ],
-      "id": "4f22b596-dff4-4e9a-822d-aee6f00fb29e",
-      "name": "HTTP Request2"
+      "id": "d0f1290f-9588-47ed-8ee3-d06ef3e3bd87",
+      "name": "Upload to Website Upload"
     },
     {
       "parameters": {
-        "method": "POST",
-        "url": "https://api.mafcofashion.com/wp-json/wc/v3/products",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpBasicAuth",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ $('Prepare Woocommerce payload').first().json.wc_body }}",
-        "options": {}
-      },
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.4,
-      "position": [
-        1520,
-        0
-      ],
-      "id": "aa8779e1-e1eb-4298-a14f-c8462ad62cd2",
-      "name": "Create Woocommerce product"
-    },
-    {
-      "parameters": {
-        "jsCode": "const parent = $input.first().json;\nconst prep = $('Prepare Woocommerce payload').first().json;\nconst colorImages = prep.colorImages || [];\nconst sizeGroups = (prep.sizeGroups && prep.sizeGroups.length)\n  ? prep.sizeGroups\n  : [prep.sizeGroup || ''];\n\n// existingSkus is only produced on the \"found existing variable product\" branch\n// (via the Merge Attributes node). On the brand-new-product branch that node\n// never runs, so referencing it throws -- in that case nothing needs skipping.\nlet existingSkus = [];\ntry {\n  existingSkus = $('Merge Attributes').first().json.existingSkus || [];\n} catch (e) {\n  existingSkus = [];\n}\n\nconst variations = [];\nfor (const img of colorImages) {\n  const colorSlug = (img.color || '').toUpperCase().replace(/[^A-Z0-9]+/g, '');\n  for (const size of sizeGroups) {\n    const sizeSlug = (size || '').toUpperCase().replace(/[^A-Z0-9]+/g, '');\n    const sku = `${prep.articleNo}-${colorSlug}-${sizeSlug}`;\n    if (existingSkus.includes(sku)) continue;\n    variations.push({\n      json: {\n        parentId: parent.id,\n        articleNo: prep.articleNo,\n        color: img.color,\n        sizeGroup: size,\n        sku,\n        imageId: img.id\n      }\n    });\n  }\n}\nreturn variations;\n"
-      },
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        1728,
-        0
-      ],
-      "id": "9803ddf5-3fb2-4d2f-a926-03256e3e9c78",
-      "name": "Build variation list"
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "=https://api.mafcofashion.com/wp-json/wc/v3/products/{{ $json.parentId }}/variations",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpBasicAuth",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={\n  \"sku\": \"{{ $json.sku }}\",\n  \"status\": \"publish\",\n  \"image\": { \"id\": {{ $json.imageId }} },\n  \"attributes\": [\n    { \"id\": 2, \"option\": \"{{ $json.color }}\" },\n    { \"id\": 5, \"option\": \"{{ $json.sizeGroup }}\" }\n  ]\n}\n",
-        "options": {
-          "pagination": {}
-        }
-      },
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.4,
-      "position": [
-        1936,
-        0
-      ],
-      "id": "b3298b31-43bb-41c5-9d10-deb554176718",
-      "name": "Create variation",
-      "alwaysOutputData": true,
-      "onError": "continueRegularOutput"
-    },
-    {
-      "parameters": {},
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        2144,
-        0
-      ],
-      "id": "71832fda-0ffc-4e2f-b671-81315d60d142",
-      "name": "Combine variation results"
-    },
-    {
-      "parameters": {
-        "url": "https://api.mafcofashion.com/wp-json/wc/v3/products",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpBasicAuth",
-        "sendQuery": true,
-        "queryParameters": {
-          "parameters": [
-            {
-              "name": "sku",
-              "value": "={{ $json.wc_body.sku }}"
-            }
-          ]
+        "name": "={{ $json._driveFilename }}",
+        "driveId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "My Drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "={{  $json._activeStockFolderId || '1NesDebCy-VMKHSPm8Ot6nwtvb5eyldIS'  }}",
+          "mode": "id"
         },
         "options": {}
       },
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.4,
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
       "position": [
-        1104,
-        0
+        288,
+        -144
       ],
-      "id": "ef12766a-74b0-4958-bf2c-8f75557d5646",
-      "name": "Check Product Exists",
-      "alwaysOutputData": true
+      "id": "c292ecb0-a304-4118-866e-5f72510a0512",
+      "name": "Upload to Active Stock"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const originalData = $('Binary 64').item.json;\nconst rawImageBase64 = originalData.imageBase64;\nif (!rawImageBase64) {\n  throw new Error('No imageBase64 found on Binary 64 node');\n  \n}\nconst rawResponse = await this.helpers.httpRequest({\n  method: 'POST',\n  url: 'http://127.0.0.1:3001/process-image',\n  body: { imageBase64: rawImageBase64, mode: 'raw' },\n  json: true\n  \n});\nif (!rawResponse || !rawResponse.imageBase64) {\n  throw new Error('No imageBase64 in raw-mode HTTP response');\n}\n\n\n  const buffer = Buffer.from(rawResponse.imageBase64, 'base64');\n  const binaryData = await this.helpers.prepareBinaryData(buffer, originalData._websiteFilename, 'image/jpeg');\n  \nreturn {\n  json: {\n    _driveFilename: originalData._driveFilename,\n    _websiteFilename: originalData._websiteFilename,\n    _articleNo: originalData._articleNo,\n    _color: originalData._color\n  },\n  binary: {\n    data: binaryData\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -32,
+        400
+      ],
+      "id": "e3424105-88c2-4f42-825f-c701a110f644",
+      "name": "Prepare Website Upload Binary"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const response = $json; // HTTP Request response: {success, imageBase64, width, height}\nconst originalData = $('Binary 64').item.json; // pull metadata from earlier node\n\nconst imageBase64 = response.imageBase64;\n\nif (!imageBase64) {\n  throw new Error(\"No imageBase64 in HTTP response\");\n}\n\nconst buffer = Buffer.from(imageBase64, 'base64');\nconst binaryData = await this.helpers.prepareBinaryData(buffer, originalData._driveFilename, 'image/jpeg');\n\nreturn {\n  json: {\n    _driveFilename: originalData._driveFilename,\n    _websiteFilename: originalData._websiteFilename,\n    _articleNo: originalData._articleNo,\n    _color: originalData._color,\n    _activeStockFolderId: originalData._activeStockFolderId\n  },\n  binary: {\n    data: binaryData\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -64,
+        -176
+      ],
+      "id": "6abcaba8-7be5-4172-9425-2afb8f15f621",
+      "name": "Prepare Active Stock Binary"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "url",
+          "value": "https://docs.google.com/spreadsheets/d/1nYeQuqeTXtmhBqL6Yeo745XjDURFPhGMVctTwsBENag/edit"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1nYeQuqeTXtmhBqL6Yeo745XjDURFPhGMVctTwsBENag/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "NAME",
+              "displayName": "NAME",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "ITEM ALIAS",
+              "displayName": "ITEM ALIAS",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "ITEM PRINT NAME",
+              "displayName": "ITEM PRINT NAME",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "ITEM GROUP",
+              "displayName": "ITEM GROUP",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "ITEM UNIT",
+              "displayName": "ITEM UNIT",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "SALES",
+              "displayName": "SALES",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "PURCHASE",
+              "displayName": "PURCHASE",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "MRP",
+              "displayName": "MRP",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "ITEM_TAX_INCL",
+              "displayName": "ITEM_TAX_INCL",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "TAX CATEGORY",
+              "displayName": "TAX CATEGORY",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "HSN CODE",
+              "displayName": "HSN CODE",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "PARAMETER STOCK",
+              "displayName": "PARAMETER STOCK",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "ITEM DESCRIPTION",
+              "displayName": "ITEM DESCRIPTION",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "No.of Pairs per set",
+              "displayName": "No.of Pairs per set",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "_articleNo",
+              "displayName": "_articleNo",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "_color",
+              "displayName": "_color",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "_itemGroup",
+              "displayName": "_itemGroup",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "_sizeGroup",
+              "displayName": "_sizeGroup",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "_mrp",
+              "displayName": "_mrp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "_alias",
+              "displayName": "_alias",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "_infoPanel",
+              "displayName": "_infoPanel",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "_driveFilename",
+              "displayName": "_driveFilename",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "_websiteFilename",
+              "displayName": "_websiteFilename",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "_hasImage",
+              "displayName": "_hasImage",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "_imageData",
+              "displayName": "_imageData",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "_imageBase64",
+              "displayName": "_imageBase64",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "_activeStockFolderId",
+              "displayName": "_activeStockFolderId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        784,
+        496
+      ],
+      "id": "1e408187-5988-4bad-b324-3ea6142e3de2",
+      "name": "Append to Stock Sheet1"
+    },
+    {
+      "parameters": {
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Product Type Label"
+            },
+            {
+              "fieldLabel": "Article Number"
+            },
+            {
+              "fieldLabel": "Colors"
+            },
+            {
+              "fieldLabel": "Item Group"
+            },
+            {
+              "fieldLabel": "Size Group"
+            },
+            {
+              "fieldLabel": "Sale Price"
+            },
+            {
+              "fieldLabel": "Purchase Price"
+            },
+            {
+              "fieldLabel": "MRP"
+            },
+            {
+              "fieldLabel": "Tax Inclusive",
+              "defaultValue": "N"
+            },
+            {
+              "fieldLabel": "Tax Category",
+              "defaultValue": "GST 5%"
+            },
+            {
+              "fieldLabel": "HSN Code",
+              "defaultValue": "6404"
+            },
+            {
+              "fieldLabel": "Parameter Stock",
+              "defaultValue": "N"
+            },
+            {
+              "fieldLabel": "Number of Pairs Per Set",
+              "defaultValue": "6"
+            }
+          ]
+        },
+        "options": {
+          "customCss": "@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');\n:root {\n    --font-family: 'Poppins', sans-serif;\n    --color-background: #FFFFFF;\n    --color-card-bg: #FFFFFF;\n    --color-card-border: #E5E5E5;\n    --color-header: #111111;\n    --color-label: #111111;\n    --color-input-border: #E5E5E5;\n    --color-input-text: #111111;\n    --color-input-bg: #FFFFFF;\n    --color-focus-border: #111111;\n    --color-submit-btn-bg: #D6FF27;\n    --color-submit-btn-text: #111111;\n    --color-required: #DC2626;\n    --color-error: #DC2626;\n    --color-link: #6B6B6B;\n}\nbody { background: #FFFFFF; }\n.card { border: 2px dashed #E5E5E5 !important; border-radius: 12px !important; box-shadow: none !important; }\n.form-header { text-align: center; }\nbutton[type=\"submit\"] { font-weight: 600 !important; border-radius: 8px !important; }\n.n8n-link { opacity: 0.45; }\n\n}"
+        }
+      },
+      "type": "n8n-nodes-base.form",
+      "typeVersion": 2.5,
+      "position": [
+        736,
+        272
+      ],
+      "id": "2008e824-9213-4d06-8982-2ec5ce77ebf4",
+      "name": "- Manual Entry",
+      "webhookId": "0ba15360-c90f-4f83-822e-f9dccad418b2"
     },
     {
       "parameters": {
@@ -223,20 +492,19 @@
                 },
                 "conditions": [
                   {
-                    "leftValue": "={{ $json.id }}",
-                    "rightValue": "",
+                    "leftValue": "={{  $json['What would you like to do?']  }}",
+                    "rightValue": "Add Product with Images (Multiple)",
                     "operator": {
-                      "type": "number",
-                      "operation": "notExists",
-                      "singleValue": true
+                      "type": "string",
+                      "operation": "equals"
                     },
-                    "id": "5315cf16-c689-4dee-b577-b0e15f3d4c72"
+                    "id": "0fbffb87-75bc-4af1-84d4-4d8add78bfc9"
                   }
                 ],
                 "combinator": "and"
               },
               "renameOutput": true,
-              "outputKey": "Not Found"
+              "outputKey": "Multi-Image"
             },
             {
               "conditions": {
@@ -248,9 +516,9 @@
                 },
                 "conditions": [
                   {
-                    "id": "261c2bf9-6081-4cb9-a484-a3780a252eb5",
-                    "leftValue": "={{ $json.type }}",
-                    "rightValue": "variable",
+                    "id": "b035b6ba-748a-4682-bde4-9925190b653a",
+                    "leftValue": "={{  $json['What would you like to do?']  }}",
+                    "rightValue": "Add Product Manually (No Image)",
                     "operator": {
                       "type": "string",
                       "operation": "equals",
@@ -261,335 +529,726 @@
                 "combinator": "and"
               },
               "renameOutput": true,
-              "outputKey": "Found Variable"
+              "outputKey": "Manual"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "7c72db8f-7046-4926-a287-b09aaa2f01c4",
+                    "leftValue": "={{  $json['What would you like to do?']  }}",
+                    "rightValue": "Add Images Only (No Sheet Update)",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Image-Only"
             }
           ]
         },
-        "options": {
-          "fallbackOutput": "extra"
-        }
+        "options": {}
       },
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.4,
       "position": [
-        1312,
+        592,
+        224
+      ],
+      "id": "34759014-1a07-427b-9c0c-ff21d6aa7c09",
+      "name": "Switch"
+    },
+    {
+      "parameters": {
+        "formTitle": "MAFCO Product Intake",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "What would you like to do?",
+              "fieldType": "radio",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Add Product with Images (Multiple)"
+                  },
+                  {
+                    "option": "Add Product Manually (No Image)"
+                  },
+                  {
+                    "option": "Add Images Only (No Sheet Update)"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "options": {
+          "customCss": "@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');\n:root {\n    --font-family: 'Poppins', sans-serif;\n    --color-background: #FFFFFF;\n    --color-card-bg: #FFFFFF;\n    --color-card-border: #E5E5E5;\n    --color-header: #111111;\n    --color-label: #111111;\n    --color-input-border: #E5E5E5;\n    --color-input-text: #111111;\n    --color-input-bg: #FFFFFF;\n    --color-focus-border: #111111;\n    --color-submit-btn-bg: #D6FF27;\n    --color-submit-btn-text: #111111;\n    --color-required: #DC2626;\n    --color-error: #DC2626;\n    --color-link: #6B6B6B;\n}\nbody { background: #FFFFFF; }\n.card { border: 2px dashed #E5E5E5 !important; border-radius: 12px !important; box-shadow: none !important; }\n.form-header { text-align: center; }\nbutton[type=\"submit\"] { font-weight: 600 !important; border-radius: 8px !important; }\n.n8n-link { opacity: 0.45; }\n\n}"
+        }
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.5,
+      "position": [
+        320,
+        272
+      ],
+      "id": "7bf0bd7a-157f-4154-aacf-0ab49cf9f596",
+      "name": "On form submission",
+      "webhookId": "b644cf05-6463-4c6c-a78c-02fefff05085"
+    },
+    {
+      "parameters": {
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Product Images",
+              "fieldType": "file",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Size Group"
+            },
+            {
+              "fieldLabel": "MRP"
+            },
+            {
+              "fieldLabel": "No. of Sets"
+            },
+            {
+              "fieldLabel": "Folder",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "ACTIVE STOCK / KIDS / GIRLS / FANCY / 4X7"
+                  },
+                  {
+                    "option": "ACTIVE STOCK / KIDS / GIRLS / FANCY / 11X5"
+                  },
+                  {
+                    "option": "ACTIVE STOCK / KIDS / GIRLS / FANCY / 7X10"
+                  },
+                  {
+                    "option": "ACTIVE STOCK / KIDS / GIRLS / FANCY / 3X6"
+                  },
+                  {
+                    "option": "ACTIVE STOCK / KIDS / GIRLS / FANCY / 0X2"
+                  },
+                  {
+                    "option": "ACTIVE STOCK / KIDS / UNISEX / FACTORY ITEMS"
+                  },
+                  {
+                    "option": "ACTIVE STOCK / KIDS / UNISEX / HAWAI"
+                  },
+                  {
+                    "option": "ACTIVE STOCK / KIDS / BOYS / LOAFERS"
+                  },
+                  {
+                    "option": "ACTIVE STOCK / KIDS / BOYS / FORMAL"
+                  },
+                  {
+                    "option": "ACTIVE STOCK / WOMEN / SPORTS SHOES"
+                  },
+                  {
+                    "option": "ACTIVE STOCK / WOMEN / HAWAI"
+                  },
+                  {
+                    "option": "ACTIVE STOCK / WOMEN / ESSENTIALS"
+                  },
+                  {
+                    "option": "ACTIVE STOCK / WOMEN / JUTTI"
+                  },
+                  {
+                    "option": "ACTIVE STOCK / WOMEN / FASHION"
+                  },
+                  {
+                    "option": "ACTIVE STOCK / WOMEN / DOCTOR"
+                  },
+                  {
+                    "option": "ACTIVE STOCK / WOMEN / CUT SIZE"
+                  },
+                  {
+                    "option": "ACTIVE STOCK / WOMEN / CASUAL"
+                  },
+                  {
+                    "option": "ACTIVE STOCK / WOMEN / BELLY"
+                  },
+                  {
+                    "option": "ACTIVE STOCK / MEN / LEATHER SLIPPER"
+                  },
+                  {
+                    "option": "ACTIVE STOCK / MEN / INDUSTRIAL"
+                  },
+                  {
+                    "option": "ACTIVE STOCK / MEN / ORTHO"
+                  },
+                  {
+                    "option": "ACTIVE STOCK / MEN / MEN'S SLIPPER"
+                  },
+                  {
+                    "option": "ACTIVE STOCK / MEN / FORMAL"
+                  },
+                  {
+                    "option": "ACTIVE STOCK / MEN / CASUAL"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "options": {
+          "customCss": "@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');\n:root {\n    --font-family: 'Poppins', sans-serif;\n    --color-background: #FFFFFF;\n    --color-card-bg: #FFFFFF;\n    --color-card-border: #E5E5E5;\n    --color-header: #111111;\n    --color-label: #111111;\n    --color-input-border: #E5E5E5;\n    --color-input-text: #111111;\n    --color-input-bg: #FFFFFF;\n    --color-focus-border: #111111;\n    --color-submit-btn-bg: #D6FF27;\n    --color-submit-btn-text: #111111;\n    --color-required: #DC2626;\n    --color-error: #DC2626;\n    --color-link: #6B6B6B;\n}\nbody { background: #FFFFFF; }\n.card { border: 2px dashed #E5E5E5 !important; border-radius: 12px !important; box-shadow: none !important; }\n.form-header { text-align: center; }\nbutton[type=\"submit\"] { font-weight: 600 !important; border-radius: 8px !important; }\n.n8n-link { opacity: 0.45; }\n\n}"
+        }
+      },
+      "type": "n8n-nodes-base.form",
+      "typeVersion": 2.5,
+      "position": [
+        -656,
+        336
+      ],
+      "id": "6fab3e39-c67e-4110-bce1-128a6ceb069f",
+      "name": "- Image Only Upload",
+      "webhookId": "55ac8a3b-7ad0-42a7-bc54-a87d88eca4a3"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\nconst selectedFolder = (input['Folder'] || '').trim();\nconst folderMap = { \"ACTIVE STOCK / KIDS / GIRLS / FANCY / 4X7\": '1x3eMppiFPs_kfMYx77xeA_A81OJdY3Ed', \"ACTIVE STOCK / KIDS / GIRLS / FANCY / 11X5\": '1t77OgfgKj6vNYHIQrcuIJuvObeBUMbnq', \"ACTIVE STOCK / KIDS / GIRLS / FANCY / 7X10\": '1Y3V6EEIC7HH9FTApSwoslwD8uqLy4rvD', \"ACTIVE STOCK / KIDS / GIRLS / FANCY / 3X6\": '18NECAgjYsbeeTcy3uDAyYFYP52-q61S6', \"ACTIVE STOCK / KIDS / GIRLS / FANCY / 0X2\": '1XWiOd6Mm28U54VBO8bnfY103TF-9nONh', \"ACTIVE STOCK / KIDS / UNISEX / FACTORY ITEMS\": '10CCyyWpUIX1sJcNT5Cx_XQw9ebuMBdTy', \"ACTIVE STOCK / KIDS / UNISEX / HAWAI\": '1V_TI0tlkJuNTZmCA9wfxjE-IURgCIEyB', \"ACTIVE STOCK / KIDS / BOYS / LOAFERS\": '1INTZBsVAmRR8wUyZZS3HwSoi7qelYysW', \"ACTIVE STOCK / KIDS / BOYS / FORMAL\": '1qTIsKYpMXbByFLJScVyU0adkUcLTKOmV', \"ACTIVE STOCK / WOMEN / SPORTS SHOES\": '1slOjqac8NLfOzmXTLMwFfAI7kcFfUC_H', \"ACTIVE STOCK / WOMEN / HAWAI\": '1ws-Yc-TmoJ51EpLD6WFbICKuQwo6z9Av', \"ACTIVE STOCK / WOMEN / ESSENTIALS\": '1uN8ncqdxlQZq3Wtw8iilH2AKaR8QSQeS', \"ACTIVE STOCK / WOMEN / JUTTI\": '1gjPm2i1-gm4kfUGRWvDr-o4p2NqIQA92', \"ACTIVE STOCK / WOMEN / FASHION\": '1TzxLdoM8IzLoU83vkAd9_ICY3RJ_AJAT', \"ACTIVE STOCK / WOMEN / DOCTOR\": '1WPNOUv2IvPAXZs8z-aCvAPSa2vUluRaK', \"ACTIVE STOCK / WOMEN / CUT SIZE\": '1_17vCutyx-N6qXddPqDvO7HWL1bUYnBg', \"ACTIVE STOCK / WOMEN / CASUAL\": '1lBUPryaHVDMxRidrRo-iAgDVOYT-NU_s', \"ACTIVE STOCK / WOMEN / BELLY\": '1L-Qj75nHypvv3QIZJGUnhsZiU_FU77_U', \"ACTIVE STOCK / MEN / LEATHER SLIPPER\": '10VYQN4gF2saHrML4PhxE8TffEDsLE1n7', \"ACTIVE STOCK / MEN / INDUSTRIAL\": '1Z7NUVD40XPuNSNXHytDEbO_FIXP6_mnY', \"ACTIVE STOCK / MEN / ORTHO\": '1jkpvgZIJRDKfuNnrFLOMr8T2yYmv9Gqi', \"ACTIVE STOCK / MEN / MEN'S SLIPPER\": '15ujN9RZwvvIcJxrvS_RQzCD85D8unttL', \"ACTIVE STOCK / MEN / FORMAL\": '1pI4p8Cep2_37g5qAoavyH5uaw63DcMSZ', \"ACTIVE STOCK / MEN / CASUAL\": '1QSb896abQ9ulZ-eEFa5n2eGpEplQetCk' };\nconst folderId = folderMap[selectedFolder] || '1NesDebCy-VMKHSPm8Ot6nwtvb5eyldIS';\nconst sizeGroup = (input['Size Group'] || '').trim();\nconst mrp = input['MRP'];\nconst pairsPerSet = (input['No. of Sets'] || '').trim();\nconst binary = $input.first().binary || {};\nconst keys = Object.keys(binary);\nif (keys.length === 0) throw new Error('No images uploaded');\nconst articleCounters = {};\nreturn keys.map((key, index) => {\n  const file = binary[key];\n  const fileName = (file.fileName || '').split('.')[0];\n  const parts = fileName.trim().split(' ');\n  const articleNo = (parts[0] || '').trim();\n  const color = parts.slice(1).join(' ').trim().toUpperCase();\n  if (!articleNo || !color) { throw new Error('Bad filename: ' + file.fileName); }\n  articleCounters[articleNo] = (articleCounters[articleNo] || 0) + 1;\n  const colorIndex = articleCounters[articleNo];\n  const alias = (articleNo + ' ' + sizeGroup + ' ' + color).replace(/\\s+/g, ' ').trim();\n  const articleClean = articleNo.replace(/[^a-zA-Z0-9]/g, '-');\n  const colorClean = color.replace(/[^a-zA-Z0-9]/g, '-');\n  const sizeClean = sizeGroup.replace(/[^a-zA-Z0-9]/g, '-');\n  const driveFilename = articleNo + ' ' + color + '.jpg';\n  const websiteFilename = articleClean + '-' + colorClean + '-' + sizeClean + '-' + pairsPerSet + '-' + colorIndex + '.jpg';\n  const infoPanel = articleNo + ' ' + color + ' | ' + sizeGroup + ' | MRP: ' + mrp + '/-';\n  return { json: { _articleNo: articleNo, _color: color, _sizeGroup: sizeGroup, _mrp: mrp, _pairsPerSet: pairsPerSet, _alias: alias, _infoPanel: infoPanel, _driveFilename: driveFilename, _websiteFilename: websiteFilename, _hasImage: true, _activeStockFolderId: folderId }, binary: { Product_Image: file } };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -816,
+        448
+      ],
+      "id": "797182dd-0d53-43db-be1f-0122875855a4",
+      "name": "Parse Filenames (Image-Only)"
+    },
+    {
+      "parameters": {
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Product Images",
+              "fieldType": "file",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Folder",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "ACTIVE STOCK / KIDS / GIRLS / FANCY / 4X7"
+                  },
+                  {
+                    "option": "ACTIVE STOCK / KIDS / GIRLS / FANCY / 11X5"
+                  },
+                  {
+                    "option": "ACTIVE STOCK / KIDS / GIRLS / FANCY / 7X10"
+                  },
+                  {
+                    "option": "ACTIVE STOCK / KIDS / GIRLS / FANCY / 3X6"
+                  },
+                  {
+                    "option": "ACTIVE STOCK / KIDS / GIRLS / FANCY / 0X2"
+                  },
+                  {
+                    "option": "ACTIVE STOCK / KIDS / UNISEX / FACTORY ITEMS"
+                  },
+                  {
+                    "option": "ACTIVE STOCK / KIDS / UNISEX / HAWAI"
+                  },
+                  {
+                    "option": "ACTIVE STOCK / KIDS / BOYS / LOAFERS"
+                  },
+                  {
+                    "option": "ACTIVE STOCK / KIDS / BOYS / FORMAL"
+                  },
+                  {
+                    "option": "ACTIVE STOCK / WOMEN / SPORTS SHOES"
+                  },
+                  {
+                    "option": "ACTIVE STOCK / WOMEN / HAWAI"
+                  },
+                  {
+                    "option": "ACTIVE STOCK / WOMEN / ESSENTIALS"
+                  },
+                  {
+                    "option": "ACTIVE STOCK / WOMEN / JUTTI"
+                  },
+                  {
+                    "option": "ACTIVE STOCK / WOMEN / FASHION"
+                  },
+                  {
+                    "option": "ACTIVE STOCK / WOMEN / DOCTOR"
+                  },
+                  {
+                    "option": "ACTIVE STOCK / WOMEN / CUT SIZE"
+                  },
+                  {
+                    "option": "ACTIVE STOCK / WOMEN / CASUAL"
+                  },
+                  {
+                    "option": "ACTIVE STOCK / WOMEN / BELLY"
+                  },
+                  {
+                    "option": "ACTIVE STOCK / MEN / LEATHER SLIPPER"
+                  },
+                  {
+                    "option": "ACTIVE STOCK / MEN / INDUSTRIAL"
+                  },
+                  {
+                    "option": "ACTIVE STOCK / MEN / ORTHO"
+                  },
+                  {
+                    "option": "ACTIVE STOCK / MEN / MEN'S SLIPPER"
+                  },
+                  {
+                    "option": "ACTIVE STOCK / MEN / FORMAL"
+                  },
+                  {
+                    "option": "ACTIVE STOCK / MEN / CASUAL"
+                  }
+                ]
+              }
+            },
+            {
+              "fieldLabel": "Item Group"
+            },
+            {
+              "fieldLabel": "Size Group"
+            },
+            {
+              "fieldLabel": "Sale Price"
+            },
+            {
+              "fieldLabel": "Purchase Price"
+            },
+            {
+              "fieldLabel": "MRP"
+            },
+            {
+              "fieldLabel": "Tax Inclusive",
+              "defaultValue": "N"
+            },
+            {
+              "fieldLabel": "Tax Category",
+              "defaultValue": "GST 5%"
+            },
+            {
+              "fieldLabel": "HSN Code",
+              "defaultValue": "6404"
+            },
+            {
+              "fieldLabel": "Parameter Stock",
+              "defaultValue": "N"
+            },
+            {
+              "fieldLabel": "Number of Pairs Per Set",
+              "defaultValue": "6"
+            }
+          ]
+        },
+        "options": {
+          "customCss": "@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');\n:root {\n    --font-family: 'Poppins', sans-serif;\n    --color-background: #FFFFFF;\n    --color-card-bg: #FFFFFF;\n    --color-card-border: #E5E5E5;\n    --color-header: #111111;\n    --color-label: #111111;\n    --color-input-border: #E5E5E5;\n    --color-input-text: #111111;\n    --color-input-bg: #FFFFFF;\n    --color-focus-border: #111111;\n    --color-submit-btn-bg: #D6FF27;\n    --color-submit-btn-text: #111111;\n    --color-required: #DC2626;\n    --color-error: #DC2626;\n    --color-link: #6B6B6B;\n}\nbody { background: #FFFFFF; }\n.card { border: 2px dashed #E5E5E5 !important; border-radius: 12px !important; box-shadow: none !important; }\n.form-header { text-align: center; }\nbutton[type=\"submit\"] { font-weight: 600 !important; border-radius: 8px !important; }\n.n8n-link { opacity: 0.45; }\n\n}"
+        }
+      },
+      "type": "n8n-nodes-base.form",
+      "typeVersion": 2.5,
+      "position": [
+        -16,
+        208
+      ],
+      "id": "60369f22-1a3f-48d8-a71c-21787bb0e13a",
+      "name": "Form - Multi Image Upload",
+      "webhookId": "015fdc67-3017-42ca-9944-91d9e7702bbf"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\nconst binary = $input.first().binary || {};\nconst selectedFolder = (input['Folder'] || '').trim();\nconst folderMap = {\n  \"ACTIVE STOCK / KIDS / GIRLS / FANCY / 4X7\": '1x3eMppiFPs_kfMYx77xeA_A81OJdY3Ed',\n  \"ACTIVE STOCK / KIDS / GIRLS / FANCY / 11X5\": '1t77OgfgKj6vNYHIQrcuIJuvObeBUMbnq',\n  \"ACTIVE STOCK / KIDS / GIRLS / FANCY / 7X10\": '1Y3V6EEIC7HH9FTApSwoslwD8uqLy4rvD',\n  \"ACTIVE STOCK / KIDS / GIRLS / FANCY / 3X6\": '18NECAgjYsbeeTcy3uDAyYFYP52-q61S6',\n  \"ACTIVE STOCK / KIDS / GIRLS / FANCY / 0X2\": '1XWiOd6Mm28U54VBO8bnfY103TF-9nONh',\n  \"ACTIVE STOCK / KIDS / UNISEX / FACTORY ITEMS\": '10CCyyWpUIX1sJcNT5Cx_XQw9ebuMBdTy',\n  \"ACTIVE STOCK / KIDS / UNISEX / HAWAI\": '1V_TI0tlkJuNTZmCA9wfxjE-IURgCIEyB',\n  \"ACTIVE STOCK / KIDS / BOYS / LOAFERS\": '1INTZBsVAmRR8wUyZZS3HwSoi7qelYysW',\n  \"ACTIVE STOCK / KIDS / BOYS / FORMAL\": '1qTIsKYpMXbByFLJScVyU0adkUcLTKOmV',\n  \"ACTIVE STOCK / WOMEN / SPORTS SHOES\": '1slOjqac8NLfOzmXTLMwFfAI7kcFfUC_H',\n  \"ACTIVE STOCK / WOMEN / HAWAI\": '1ws-Yc-TmoJ51EpLD6WFbICKuQwo6z9Av',\n  \"ACTIVE STOCK / WOMEN / ESSENTIALS\": '1uN8ncqdxlQZq3Wtw8iilH2AKaR8QSQeS',\n  \"ACTIVE STOCK / WOMEN / JUTTI\": '1gjPm2i1-gm4kfUGRWvDr-o4p2NqIQA92',\n  \"ACTIVE STOCK / WOMEN / FASHION\": '1TzxLdoM8IzLoU83vkAd9_ICY3RJ_AJAT',\n  \"ACTIVE STOCK / WOMEN / DOCTOR\": '1WPNOUv2IvPAXZs8z-aCvAPSa2vUluRaK',\n  \"ACTIVE STOCK / WOMEN / CUT SIZE\": '1_17vCutyx-N6qXddPqDvO7HWL1bUYnBg',\n  \"ACTIVE STOCK / WOMEN / CASUAL\": '1lBUPryaHVDMxRidrRo-iAgDVOYT-NU_s',\n  \"ACTIVE STOCK / WOMEN / BELLY\": '1L-Qj75nHypvv3QIZJGUnhsZiU_FU77_U',\n  \"ACTIVE STOCK / MEN / LEATHER SLIPPER\": '10VYQN4gF2saHrML4PhxE8TffEDsLE1n7',\n  \"ACTIVE STOCK / MEN / INDUSTRIAL\": '1Z7NUVD40XPuNSNXHytDEbO_FIXP6_mnY',\n  \"ACTIVE STOCK / MEN / ORTHO\": '1jkpvgZIJRDKfuNnrFLOMr8T2yYmv9Gqi',\n  \"ACTIVE STOCK / MEN / MEN'S SLIPPER\": '15ujN9RZwvvIcJxrvS_RQzCD85D8unttL',\n  \"ACTIVE STOCK / MEN / FORMAL\": '1pI4p8Cep2_37g5qAoavyH5uaw63DcMSZ',\n  \"ACTIVE STOCK / MEN / CASUAL\": '1QSb896abQ9ulZ-eEFa5n2eGpEplQetCk'\n  \n};\nconst folderId = folderMap[selectedFolder] || '1NesDebCy-VMKHSPm8Ot6nwtvb5eyldIS';\nconst folderParts = selectedFolder.split(' / ');\nconst productType = folderParts[folderParts.length - 1] || '';\n\nconst itemGroup = (input['Item Group'] || '').trim();\nconst sizeGroup = (input['Size Group'] || '').trim();\nconst salePrice = input['Sale Price'];\nconst purchasePrice = input['Purchase Price'];\nconst mrp = input['MRP'];\nconst taxIncl = input['Tax Inclusive'] || 'N';\nconst taxCategory = input['Tax Category'] || 'GST 5%';\nconst hsnCode = input['HSN Code'] || '6404';\nconst paramStock = input['Parameter Stock'] || 'N';\nconst pairsPerSet = input['Number of Pairs Per Set'];\nconst keys = Object.keys(binary);\nif (keys.length === 0) throw new Error('No images uploaded');\nconst articleCounters = {};\n\nreturn keys.map((key, index) => {\n  const file = binary[key];\n  const fileName = (file.fileName || '').split('.')[0].trim();\n  let articleNo = '';\n  let color = '';\n  if (fileName.indexOf(' ') !== -1) {\n    const parts = fileName.split(' ');\n    articleNo = parts[0].trim();\n    color = parts.slice(1).join(' ').trim();\n  } else if (fileName.lastIndexOf('-') !== -1) {\n    const idx = fileName.lastIndexOf('-');\n    articleNo = fileName.substring(0, idx).trim();\n    color = fileName.substring(idx + 1).trim();\n  } else {\n    articleNo = fileName;\n  }\n  color = color.toUpperCase();\n  if (!articleNo || !color) { throw new Error('Bad filename: ' + file.fileName); }\n  const name = ('MAFCO ' + productType + ' ' + articleNo + ' ' + sizeGroup + ' ' + color).replace(/\\s+/g, ' ').trim();\n  const alias = (articleNo + ' ' + sizeGroup + ' ' + color).replace(/\\s+/g, ' ').trim();\n  const articleClean = articleNo.replace(/[^a-zA-Z0-9]/g, '-');\n  const colorClean = color.replace(/[^a-zA-Z0-9]/g, '-');\n  const sizeClean = sizeGroup.replace(/[^a-zA-Z0-9]/g, '-');\n  articleCounters[articleNo] = (articleCounters[articleNo] || 0) + 1;\n  const colorIndex = articleCounters[articleNo];\n  \n  const websiteFilename = articleClean + '-' + colorClean + '-' + sizeClean + '-' + pairsPerSet + '-' + colorIndex + '.jpg';\n  const driveFilename = articleNo + ' ' + color + '.jpg';\n  const infoPanel = articleNo + ' ' + color + ' | ' + sizeGroup + ' | MRP: ' + mrp + '/-';\n  const row = {};\n  row['_activeStockFolderId'] = folderId;\n  row['NAME'] = name; row['ITEM ALIAS'] = alias; row['ITEM PRINT NAME'] = name;\n  row['ITEM GROUP'] = itemGroup; row['ITEM UNIT'] = 'PCS.';\n  row['SALES'] = salePrice; row['PURCHASE'] = purchasePrice; row['MRP'] = mrp;\n  row['ITEM_TAX_INCL'] = taxIncl; row['TAX CATEGORY'] = taxCategory;\n  row['HSN CODE'] = hsnCode; row['PARAMETER STOCK'] = paramStock;\n  row['ITEM DESCRIPTION'] = name; row['No.of Pairs per set'] = pairsPerSet;\n  row['_articleNo'] = articleNo; row['_color'] = color; row['_itemGroup'] = itemGroup;\n  row['_sizeGroup'] = sizeGroup; row['_mrp'] = mrp; row['_alias'] = alias;\n  row['_infoPanel'] = infoPanel; row['_driveFilename'] = driveFilename;\n  row['_websiteFilename'] = websiteFilename; row['_hasImage'] = true;\n  return { json: row, binary: { Product_Image: file } };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        160,
+        400
+      ],
+      "id": "5d52f03c-9ea6-4edf-b716-4dff8be0a2ce",
+      "name": "Parse Filenames (Multi-Image)"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "mafco-drive-upload",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
         0
       ],
-      "id": "690dbd4d-4aed-4d5e-9cd7-8446c7939b8f",
-      "name": "Route By Product Status"
+      "id": "cb9f1dc4-4316-4f9a-9b25-dfe96e836f40",
+      "name": "Webhook",
+      "webhookId": "94b79ead-866e-449d-8ba6-216fcb02daa2"
     },
     {
       "parameters": {
-        "url": "=https://api.mafcofashion.com/wp-json/wc/v3/products/{{ $json.id }}/variations",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpBasicAuth",
-        "options": {}
-      },
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.4,
-      "position": [
-        1568,
-        256
-      ],
-      "id": "297c86cb-044c-42a8-b441-3709b948a044",
-      "name": "Get Existing Variations",
-      "alwaysOutputData": true
-    },
-    {
-      "parameters": {
-        "jsCode": "const existingProduct = $('Check Product Exists').first().json;\nconst prep = $('Prepare Woocommerce payload').first().json;\nconst existingVariations = $input.all().map(item => item.json);\n\nconst existingAttrs = existingProduct.attributes || [];\nconst existingColorAttr = existingAttrs.find(a => a.id === 2);\nconst existingSizeAttr = existingAttrs.find(a => a.id === 5);\n\nconst existingColors = existingColorAttr ? existingColorAttr.options : [];\nconst existingSizes = existingSizeAttr ? existingSizeAttr.options : [];\n\nconst newColors = [...new Set((prep.colorImages || []).map(img => img.color))];\nconst newSizes = prep.sizeGroups || [];\n\nconst mergedColors = [...new Set([...existingColors, ...newColors])];\nconst mergedSizes = [...new Set([...existingSizes, ...newSizes])];\n\n// Categories also need merging -- the existing product may already be listed\n// under one size's category (e.g. \"0X2\"), and this upload may add another\n// (e.g. \"3X6\"). Without this, the new size's category page never lists it.\nconst existingCategoryIds = (existingProduct.categories || []).map(c => c.id);\nconst newCategoryIds = (prep.wc_body && prep.wc_body.categories || []).map(c => c.id);\nconst mergedCategoryIds = [...new Set([...existingCategoryIds, ...newCategoryIds])];\n\n// Existing variation SKUs -- used downstream to skip recreating variations\n// that already exist on this product.\nconst existingSkus = existingVariations\n  .filter(v => v && v.sku)\n  .map(v => v.sku);\n\nreturn [{\n  json: {\n    productId: existingProduct.id,\n    mergedColors,\n    mergedSizes,\n    mergedCategoryIds,\n    existingSkus\n  }\n}];\n"
+        "jsCode": "const input = $input.first();\nconst body = input.json.body || {};\nconst out = { json: {}, binary: input.binary || {} };\nfor (const key of Object.keys(body)) { out.json[key] = body[key]; }\nreturn [out];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1776,
-        256
+        624,
+        0
       ],
-      "id": "a3f6e751-9e8e-49fc-b320-0bb2926b2204",
-      "name": "Merge Attributes"
+      "id": "c0fe4847-21fc-49b7-9608-b16e80e9ed06",
+      "name": "Code in JavaScript1"
     },
     {
       "parameters": {
-        "method": "PUT",
-        "url": "=https://api.mafcofashion.com/wp-json/wc/v3/products/{{ $json.productId }}",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpBasicAuth",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={\n  \"type\": \"variable\",\n  \"categories\": {{ JSON.stringify($json.mergedCategoryIds.map(id => ({ id: id }))) }},\n  \"attributes\": [\n    { \"id\": 2, \"options\": {{ JSON.stringify($json.mergedColors) }}, \"variation\": true, \"visible\": true },\n    { \"id\": 5, \"options\": {{ JSON.stringify($json.mergedSizes) }}, \"variation\": true, \"visible\": true }\n  ]\n}\n",
+        "path": "mafco-dashboard",
+        "responseMode": "lastNode",
         "options": {}
       },
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.4,
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
       "position": [
-        1984,
-        256
+        -400,
+        -96
       ],
-      "id": "014cff1a-dd71-47f4-bb22-7b805f34933f",
-      "name": "Update Existing Product"
+      "id": "e3b7403e-592a-4eeb-b080-592b03c16b70",
+      "name": "Webhook1",
+      "webhookId": "be2d24bf-d72f-4280-a6d7-25649542eca1"
     },
     {
       "parameters": {
-        "jsCode": "const existing = $('Check Product Exists').first().json;\nconst prep = $('Prepare Woocommerce payload').first().json;\n\nreturn [{\n  json: {\n    article: prep.article,\n    status: 'failed',\n    error: `Article ${prep.articleNo} already exists as a simple product (ID ${existing.id}, type: ${existing.type}). It needs to be manually converted to a variable product in WooCommerce before a new size can be added. No changes were made.`\n  }\n}];\n"
+        "fileSelector": "/Users/MAFCO/Drive and sheet upload module/MAFCO Drive Upload Dashboard.html",
+        "options": {}
       },
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
       "position": [
-        1168,
-        368
+        -192,
+        -96
       ],
-      "id": "d502bd9f-2af3-4904-849a-5e1cd2e9b0cd",
-      "name": "Build Legacy Product Error"
+      "id": "62b8d5c2-095a-4478-8a56-52bc991df04d",
+      "name": "Read/Write Files from Disk"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{  $json['What would you like to do?']  }}",
+                    "rightValue": "Add Product with Images (Multiple)",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "0fbffb87-75bc-4af1-84d4-4d8add78bfc9"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Multi-Image"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "b035b6ba-748a-4682-bde4-9925190b653a",
+                    "leftValue": "={{  $json['What would you like to do?']  }}",
+                    "rightValue": "Add Product Manually (No Image)",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Manual"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "7c72db8f-7046-4926-a287-b09aaa2f01c4",
+                    "leftValue": "={{  $json['What would you like to do?']  }}",
+                    "rightValue": "Add Images Only (No Sheet Update)",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Image-Only"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "54c1f428-27e9-47a2-852d-2f4cf808df37",
+      "name": "Switch (Webhook)",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        624,
+        464
+      ]
     }
   ],
-  "pinData": {
-    "Webhook": [
-      {
-        "json": {
-          "headers": {
-            "host": "localhost:5678",
-            "connection": "keep-alive",
-            "content-length": "1041",
-            "sec-ch-ua-platform": "\"macOS\"",
-            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
-            "sec-ch-ua": "\"Not;A=Brand\";v=\"8\", \"Chromium\";v=\"150\", \"Google Chrome\";v=\"150\"",
-            "content-type": "application/json",
-            "sec-ch-ua-mobile": "?0",
-            "accept": "*/*",
-            "origin": "http://localhost:5678",
-            "sec-fetch-site": "same-origin",
-            "sec-fetch-mode": "cors",
-            "sec-fetch-dest": "empty",
-            "accept-encoding": "gzip, deflate, br, zstd",
-            "accept-language": "en-GB,en-US;q=0.9,en;q=0.8,ta;q=0.7",
-            "cookie": "rl_page_init_referrer=RudderEncrypt%3AU2FsdGVkX19pX6klPVWiTnnCsR1v2gQViCemagYrus0%3D; rl_page_init_referring_domain=RudderEncrypt%3AU2FsdGVkX187CVeTtU7UonpR6oHRKKgnoFf4fu79kb0%3D; rl_anonymous_id=RudderEncrypt%3AU2FsdGVkX19BQ%2BKIppqSy0n9waCtGV5HfSXujcdju2dUpCPj8NOyWEjaXIhYfJWPiWe3ipFqrZQXgsLCPcXnnA%3D%3D; rl_user_id=RudderEncrypt%3AU2FsdGVkX1%2BxF7YmOGlmDTXbuAEByF%2F951jcrrzqTywDWJ3YJemBTDAWUYdcrf7owOMiSBTrUELr38cjy1NG6TrF1%2BdR6jfCLNkSMDVsM9L%2B4PoDlBPiwKi30aXB2h7%2B5wzhuX5wXRuHFjmUhroe%2FX5LT8qbMw60TrNywSCEuqM%3D; rl_trait=RudderEncrypt%3AU2FsdGVkX19Vtw5SLJFyxi8RvXcL9GjYZY%2BEvFxhmisn5IQu5QtaN1q0lTx9xJ%2FI1WJT5%2Brf74u0kOeS2IHQdrZyJs5cVvC3pKNwqZP%2FUOlZtfAdZLj60g5cJXY0X0qZ3E8a0oRYHLYGO46tuOWix5kNUozaDNUsJO6XPyjUjto%3D; rl_session=RudderEncrypt%3AU2FsdGVkX19cLWsDvA2x2N2PodXZehCBgK3v0JrApMdA62uSVE%2F6PzqaJxG8aDg%2F3W1v%2FRMWAVh4hlzxRWmauVU06MK9DfUH0o%2FtFz824jc8UPggo8txeZrBmV976uGqQDmI0ij3mE9DJ%2F4KMQjuYw%3D%3D; ph_phc_4URIAm1uYfJO7j8kWSe0J8lc8IqnstRLS7Jx8NcakHo_posthog=%7B%22%24device_id%22%3A%2201a04d40-5b1d-7f69-87c4-30a8a7cf3970%22%2C%22distinct_id%22%3A%22ae465a93db1602bbe706f00b840f9ef0fac324ad88914e058b18aa1ddc2946fd%23dc6abe62-46c2-46ab-8bed-cb3f5fe7b4d5%22%2C%22%24sesid%22%3A%5B1788020302726%2C%2201a04e1b-a9e8-7abe-aa9b-45c00fe664f5%22%2C1788016830941%5D%2C%22%24epp%22%3Atrue%2C%22%24initial_person_info%22%3A%7B%22r%22%3A%22%24direct%22%2C%22u%22%3A%22http%3A%2F%2Flocalhost%3A5678%2Fsignin%3Fredirect%3D%25252Fhome%25252Fworkflows%22%7D%2C%22%24user_state%22%3A%22identified%22%7D"
-          },
-          "params": {},
-          "query": {},
-          "body": {
-            "article": "ZZTEST-003",
-            "data": {
-              "productName": "ZZTEST-003",
-              "articleNo": "ZZTEST-003",
-              "productType": "Flat Sandal",
-              "brand": "MAFCO",
-              "seoTitle": "TEST PRODUCT - DELETE ME",
-              "metaDescription": "TEST PRODUCT - DELETE ME. Automated end-to-end test of the new category-ID passthrough.",
-              "focusKeyword": "test product",
-              "altText": "test product",
-              "caption": "TEST PRODUCT - DELETE ME.",
-              "shortDescription": "TEST PRODUCT - DELETE ME. Created automatically to verify the new category-ID passthrough in the n8n variants workflow, end-to-end, after removing the CATEGORY_IDS lookup table (29 Aug 2026).",
-              "longDescription": "TEST PRODUCT - DELETE ME. Created automatically to verify the new category-ID passthrough in the n8n variants workflow, end-to-end, after removing the CATEGORY_IDS lookup table (29 Aug 2026).",
-              "categories": [
-                79,
-                89
-              ]
-            },
-            "images": [
-              {
-                "slot": 1,
-                "color": "TestColor",
-                "filename": "ZZTEST-003-TestColor-TESTSIZE-1-1.jpg",
-                "base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
-              }
-            ],
-            "size": "TESTSIZE",
-            "pairs": "1"
-          },
-          "webhookUrl": "http://localhost:5678/webhook/mafco-publish-variants",
-          "executionMode": "production"
-        },
-        "pairedItem": {
-          "item": 0
-        }
-      }
-    ]
-  },
+  "pinData": {},
   "connections": {
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Binary 64",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Binary 64": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Prepare Website Upload Binary",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Prepare Active Stock Binary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Website Upload Binary": {
+      "main": [
+        [
+          {
+            "node": "Upload to Website Upload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Active Stock Binary": {
+      "main": [
+        [
+          {
+            "node": "Upload to Active Stock",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "- Manual Entry": {
+      "main": [
+        [
+          {
+            "node": "Append to Stock Sheet1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch": {
+      "main": [
+        [
+          {
+            "node": "Form - Multi Image Upload",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "- Manual Entry",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "- Image Only Upload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "On form submission": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "- Image Only Upload": {
+      "main": [
+        [
+          {
+            "node": "Parse Filenames (Image-Only)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Filenames (Image-Only)": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Form - Multi Image Upload": {
+      "main": [
+        [
+          {
+            "node": "Parse Filenames (Multi-Image)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Filenames (Multi-Image)": {
+      "main": [
+        [
+          {
+            "node": "Append to Stock Sheet1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "Webhook": {
       "main": [
         [
           {
-            "node": "Upload all images",
+            "node": "Code in JavaScript1",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Build response": {
+    "Code in JavaScript1": {
       "main": [
         [
           {
-            "node": "Respond to Webhook",
+            "node": "Switch (Webhook)",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Combine Upload results": {
+    "Webhook1": {
       "main": [
         [
           {
-            "node": "Prepare Woocommerce payload",
+            "node": "Read/Write Files from Disk",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Upload all images": {
+    "Switch (Webhook)": {
       "main": [
         [
           {
-            "node": "HTTP Request2",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "HTTP Request2": {
-      "main": [
-        [
-          {
-            "node": "Combine Upload results",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Prepare Woocommerce payload": {
-      "main": [
-        [
-          {
-            "node": "Check Product Exists",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Create Woocommerce product": {
-      "main": [
-        [
-          {
-            "node": "Build variation list",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Build variation list": {
-      "main": [
-        [
-          {
-            "node": "Create variation",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Create variation": {
-      "main": [
-        [
-          {
-            "node": "Combine variation results",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Combine variation results": {
-      "main": [
-        [
-          {
-            "node": "Build response",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Check Product Exists": {
-      "main": [
-        [
-          {
-            "node": "Route By Product Status",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Route By Product Status": {
-      "main": [
-        [
-          {
-            "node": "Create Woocommerce product",
+            "node": "Parse Filenames (Multi-Image)",
             "type": "main",
             "index": 0
           }
         ],
         [
           {
-            "node": "Get Existing Variations",
+            "node": "Append to Stock Sheet1",
             "type": "main",
             "index": 0
           }
         ],
         [
           {
-            "node": "Build Legacy Product Error",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Get Existing Variations": {
-      "main": [
-        [
-          {
-            "node": "Merge Attributes",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Merge Attributes": {
-      "main": [
-        [
-          {
-            "node": "Update Existing Product",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Update Existing Product": {
-      "main": [
-        [
-          {
-            "node": "Build variation list",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Build Legacy Product Error": {
-      "main": [
-        [
-          {
-            "node": "Respond to Webhook",
+            "node": "Parse Filenames (Image-Only)",
             "type": "main",
             "index": 0
           }
@@ -603,11 +1262,10 @@
     "binaryMode": "separate",
     "availableInMCP": false
   },
-  "versionId": "1eef9a3a-9102-49b7-878e-1b716f82d8f0",
+  "versionId": "b6f27a74-b528-4cad-9c5a-959d05fe1e3b",
   "meta": {
-    "templateCredsSetupCompleted": true,
     "instanceId": "ae465a93db1602bbe706f00b840f9ef0fac324ad88914e058b18aa1ddc2946fd"
   },
-  "id": "FuBIkUUzr2uHLy8K",
+  "id": "HDn3O2tLYOM5Netq",
   "tags": []
 }
